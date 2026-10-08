@@ -22,10 +22,10 @@ $ICLOUD_ROOT/<name>/
   originals/        # one copy of everything
   by-date/YYYY/MM/  # hardlinks
   albums/<Album>/   # hardlinks
-  albums.csv        # path,size,stored: each album entry and the originals/ file it links to
+  albums.csv        # path,size,mtime,stored: each album entry and the originals/ file it links to
 ```
 
-A photo is the same photo when its file name and size match. A photo in several albums is downloaded once; a different photo that merely shares a name (same name, different size) is kept separately. If two different photos share a name in the same month, `by-date/` links the second as `<name>-<size>.<ext>`.
+A photo is the same photo when its file name, size and modification time all match. A photo in several albums is downloaded once; a different photo that merely shares a name (and even a size) is kept separately. If two different photos share a name in the same month, `by-date/` links the second as `<name>-<size>.<ext>`.
 
 ## Configuration
 

@@ -39,7 +39,7 @@ main() {
     link_one "$1" "$alt"
   }
 
-  # Reads albums.csv (path,size,stored) and prints "path<TAB>stored" for each entry
+  # Reads albums.csv (path,size,mtime,stored) and prints "path<TAB>stored" for each entry
   albums_tsv() {
     awk '
       function parse(line, f,   n, i, c, q, cur) {
@@ -57,7 +57,7 @@ main() {
         f[n] = cur
         return n
       }
-      NR > 1 { parse($0, f); print f[1] "\t" f[3] }' "$1"
+      NR > 1 { n = parse($0, f); print f[1] "\t" f[n] }' "$1"
   }
 
   link_account() {
