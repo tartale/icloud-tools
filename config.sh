@@ -10,5 +10,5 @@ ICLOUD_LOCK_FILE=${ICLOUD_LOCK_FILE:-/tmp/rclone-icloudphotos.lock}
 # Space-separated "<name>=<rclone remote>" pairs. Photos land in $ICLOUD_ROOT/<name>.
 ICLOUD_ACCOUNTS=${ICLOUD_ACCOUNTS:-"tom=tom.photos.icloud marissa=marissa.photos.icloud"}
 
-# Unprefixed by convention; "true" or "1" means count only, change nothing.
+# Unprefixed by convention; "true" or "1" means change nothing (rclone --dry-run, or organize.sh counting only).
 DRY_RUN=${DRY_RUN:-false}

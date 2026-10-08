@@ -1,5 +1,6 @@
 #!/bin/bash
-# Copy each account's "All Photos" from iCloud with rclone, plus its album listing.
+# Copy every photo and video from each iCloud account into <account>/originals/, plus the album listing.
+# "All Photos" lands flat in originals/; photos that exist only in albums land in originals/<Album>/.
 # One lock for all accounts: they run one after the other, which is also gentler on Apple's rate limits
 # shellcheck source=config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
@@ -10,28 +11,52 @@ RCLONE=$ICLOUD_RCLONE
 CONF=$ICLOUD_RCLONE_CONF
 LOG=$ICLOUD_ROOT/backup.log
 
+RCLONE_DRY=()
+case $DRY_RUN in true|1) RCLONE_DRY=(--dry-run);; esac
+
 backup_account() {
   local remote="$1" dest="$2"
-  local rc tmp="$2/albums.tmp"
+  local rc=0 listing="$2/listing.tmp" album_only="$2/album-only.tmp"
 
-  mkdir -p "$dest"
+  mkdir -p "$dest/originals"
 
-  $RCLONE copy "${remote}:/PrimarySync/All Photos" "$dest/All Photos" \
-    --config "$CONF" \
+  $RCLONE copy "${remote}:/PrimarySync/All Photos" "$dest/originals" \
+    --config "$CONF" "${RCLONE_DRY[@]}" \
     --transfers 4 --checkers 8 \
     --retries 5 --low-level-retries 20 \
-    --log-file "$LOG" --log-level INFO
-  rc=$?
+    --log-file "$LOG" --log-level INFO || rc=1
 
-  # Album membership list: replace the old one only if the listing succeeded
-  if $RCLONE lsf "${remote}:/PrimarySync" -R --files-only \
-       --config "$CONF" --log-file "$LOG" --log-level INFO > "$tmp"; then
-    grep -v '^All Photos/' "$tmp" > "$dest/albums.txt" || true   # grep exits 1 if no albums; not an error
-  else
-    echo "$(date) [$remote] album listing failed" >> "$LOG"
+  # Full listing, taken after the copy above. Entries outside "All Photos" are album members.
+  if ! $RCLONE lsf "${remote}:/PrimarySync" -R --files-only \
+       --config "$CONF" --log-file "$LOG" --log-level INFO > "$listing"; then
+    echo "$(date) [$remote] listing failed; album-only photos not copied" >> "$LOG"
+    rm -f "$listing"
+    return 1
   fi
-  rm -f "$tmp"
 
+  # Album membership list, and the members whose file name is not in "All Photos".
+  awk -v albums="$dest/albums.txt" -v only="$album_only" '
+    index($0, "All Photos/") == 1 { have[substr($0, 12)] = 1; next }
+    { entries[++n] = $0 }
+    END {
+      for (i = 1; i <= n; i++) {
+        print entries[i] > albums
+        name = entries[i]; sub(/.*\//, "", name)
+        if (!(name in have) && index(entries[i], "/") > 0) print entries[i] > only
+      }
+      close(albums); close(only)
+    }' "$listing"
+  [ -e "$dest/albums.txt" ] || : > "$dest/albums.txt"
+  [ -e "$album_only" ] || : > "$album_only"
+
+  $RCLONE copy "${remote}:/PrimarySync" "$dest/originals" \
+    --files-from-raw "$album_only" \
+    --config "$CONF" "${RCLONE_DRY[@]}" \
+    --transfers 4 --checkers 8 \
+    --retries 5 --low-level-retries 20 \
+    --log-file "$LOG" --log-level INFO || rc=1
+
+  rm -f "$listing" "$album_only"
   return $rc
 }
 

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build by-date/ and albums/ hardlink trees next to "All Photos".
-# Safe to rerun: existing links are skipped. Nothing in "All Photos" is modified.
+# Build by-date/ and albums/ hardlink trees next to originals/, where every photo is stored once.
+# Safe to rerun: existing links are skipped. Nothing in originals/ is modified.
 # shellcheck source=config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 exec 9>"$ICLOUD_LOCK_FILE"
@@ -27,9 +27,9 @@ link_one() {
 }
 
 link_account() {
-  local base="$1" src="$1/All Photos" t0=$SECONDS
+  local base="$1" src="$1/originals" t0=$SECONDS
   local d_new=0 d_have=0 d_fail=0 a_new=0 a_have=0 a_fail=0 a_miss=0
-  local ym f line album name total i
+  local ym f line album name file total i
 
   [ -d "$src" ] || { log "[$base] ERROR: $src not found"; return 1; }
   log "[$base] starting (dry=$DRY)"
@@ -54,6 +54,7 @@ link_account() {
   log "[$base] by-date done: new=$d_new existing=$d_have failed=$d_fail"
 
   # --- albums/<Album>/ (from the album list the backup script writes) ---
+  # An entry is stored at originals/<entry> when it exists only in an album, otherwise at originals/<name>.
   if [ -s "$base/albums.txt" ]; then
     total=$(grep -c '/' "$base/albums.txt")
     log "[$base] albums: $total entries to check"
@@ -62,11 +63,15 @@ link_account() {
       [[ $line == */* ]] || continue          # skip entries not inside an album folder
       album="${line%/*}"; name="${line##*/}"
       ((i++))
-      if [ ! -f "$src/$name" ]; then
+      if [ -f "$src/$line" ]; then file="$src/$line"
+      elif [ -f "$src/$name" ]; then file="$src/$name"
+      else file=""
+      fi
+      if [ -z "$file" ]; then
         ((a_miss++))
-        if ((a_miss <= 20)); then log "[$base] not in All Photos: $line"; fi
+        if ((a_miss <= 20)); then log "[$base] not in originals: $line"; fi
       else
-        link_one "$src/$name" "$base/albums/$album/$name"
+        link_one "$file" "$base/albums/$album/$name"
         case $? in
           0) ((a_new++));;
           1) ((a_have++));;
@@ -74,10 +79,10 @@ link_account() {
         esac
       fi
       if ((i % PROGRESS_EVERY == 0)); then
-        log "[$base] albums: $i/$total (new=$a_new existing=$a_have failed=$a_fail not-in-All-Photos=$a_miss) $((SECONDS - t0))s elapsed"
+        log "[$base] albums: $i/$total (new=$a_new existing=$a_have failed=$a_fail not-in-originals=$a_miss) $((SECONDS - t0))s elapsed"
       fi
     done < "$base/albums.txt"
-    log "[$base] albums done: new=$a_new existing=$a_have failed=$a_fail not-in-All-Photos=$a_miss"
+    log "[$base] albums done: new=$a_new existing=$a_have failed=$a_fail not-in-originals=$a_miss"
   else
     log "[$base] albums.txt missing or empty; skipped albums"
   fi
