@@ -11,17 +11,28 @@ RCLONE=$ICLOUD_RCLONE
 CONF=$ICLOUD_RCLONE_CONF
 LOG=$ICLOUD_ROOT/backup.log
 
-RCLONE_DRY=()
-case $DRY_RUN in true|1) RCLONE_DRY=(--dry-run);; esac
+# Writes to the log file, and to the terminal too when run interactively
+log() {
+  local msg
+  msg="$(date '+%F %T') $*"
+  echo "$msg" >> "$LOG"
+  if [ -t 1 ]; then echo "$msg"; fi
+}
+
+# Interactive runs show rclone's live transfer progress; the log file gets INFO either way
+RCLONE_OPTS=()
+case $DRY_RUN in true|1) RCLONE_OPTS+=(--dry-run);; esac
+if [ -t 1 ]; then RCLONE_OPTS+=(--progress); fi
 
 backup_account() {
   local remote="$1" dest="$2"
   local rc=0 listing="$2/listing.tmp" album_only="$2/album-only.tmp"
 
   mkdir -p "$dest/originals"
+  log "[$remote] copying All Photos (dry-run=$DRY_RUN)"
 
   $RCLONE copy "${remote}:/PrimarySync/All Photos" "$dest/originals" \
-    --config "$CONF" "${RCLONE_DRY[@]}" \
+    --config "$CONF" "${RCLONE_OPTS[@]}" \
     --transfers 4 --checkers 8 \
     --retries 5 --low-level-retries 20 \
     --log-file "$LOG" --log-level INFO || rc=1
@@ -29,7 +40,7 @@ backup_account() {
   # Full listing, taken after the copy above. Entries outside "All Photos" are album members.
   if ! $RCLONE lsf "${remote}:/PrimarySync" -R --files-only \
        --config "$CONF" --log-file "$LOG" --log-level INFO > "$listing"; then
-    echo "$(date) [$remote] listing failed; album-only photos not copied" >> "$LOG"
+    log "[$remote] ERROR: listing failed; album-only photos not copied"
     rm -f "$listing"
     return 1
   fi
@@ -49,20 +60,23 @@ backup_account() {
   [ -e "$dest/albums.txt" ] || : > "$dest/albums.txt"
   [ -e "$album_only" ] || : > "$album_only"
 
+  log "[$remote] copying $(wc -l < "$album_only") album-only photos"
   $RCLONE copy "${remote}:/PrimarySync" "$dest/originals" \
     --files-from-raw "$album_only" \
-    --config "$CONF" "${RCLONE_DRY[@]}" \
+    --config "$CONF" "${RCLONE_OPTS[@]}" \
     --transfers 4 --checkers 8 \
     --retries 5 --low-level-retries 20 \
     --log-file "$LOG" --log-level INFO || rc=1
 
   rm -f "$listing" "$album_only"
+  log "[$remote] finished (exit $rc)"
   return $rc
 }
 
+log "=== backup run started ==="
 overall=0
 for account in $ICLOUD_ACCOUNTS; do
   backup_account "${account#*=}" "$ICLOUD_ROOT/${account%%=*}" || overall=1
 done
-
+log "=== backup run finished: exit $overall, ${SECONDS}s total ==="
 exit $overall

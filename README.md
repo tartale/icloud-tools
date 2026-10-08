@@ -39,4 +39,4 @@ Set in the environment; defaults are in `config.sh`.
 | `DRY_RUN` | `false` | `true`/`1`: `backup.sh` passes `--dry-run` to rclone; `organize.sh` counts only and creates nothing |
 | `PROGRESS_EVERY` | `1000` | `organize.sh` progress-log interval |
 
-Logs: `$ICLOUD_ROOT/backup.log`, `$ICLOUD_ROOT/organize.log`.
+Logs: `$ICLOUD_ROOT/backup.log`, `$ICLOUD_ROOT/organize.log`. Run from a terminal, both scripts also print their status lines there, and `backup.sh` shows rclone's live transfer progress; from cron they only write the log.
