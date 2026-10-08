@@ -1,6 +1,7 @@
 #!/bin/bash
 # Copy every photo and video from each iCloud account into <account>/originals/, plus the album listing.
-# "All Photos" lands flat in originals/; photos that exist only in albums land in originals/<Album>/.
+# "All Photos" lands flat in originals/; photos that exist only in albums land in originals/<Album>/,
+# once each (a photo is the same when file name and size match). albums.csv maps each album entry to its stored file.
 # One lock for all accounts: they run one after the other, which is also gentler on Apple's rate limits
 # The whole script lives in main so bash has parsed all of it before running any of it;
 # editing the file mid-run then cannot corrupt that run.
@@ -10,6 +11,7 @@ main() {
   exec 9>"$ICLOUD_LOCK_FILE"
   flock -n 9 || { echo "Previous run still active, exiting"; exit 0; }
 
+  TAB=$'\t'
   RCLONE=$ICLOUD_RCLONE
   CONF=$ICLOUD_RCLONE_CONF
   LOG=$ICLOUD_ROOT/backup.log
@@ -40,30 +42,50 @@ main() {
       --retries 5 --low-level-retries 20 \
       --log-file "$LOG" --log-level INFO || rc=1
 
-    # Full listing, taken after the copy above. Entries outside "All Photos" are album members.
-    if ! $RCLONE lsf "${remote}:/PrimarySync" -R --files-only \
+    # Full listing (size, tab, path), taken after the copy above and sorted by path so that
+    # the same photo always resolves to the same stored copy. Entries outside "All Photos" are album members.
+    if ! $RCLONE lsf "${remote}:/PrimarySync" -R --files-only --format sp --separator "$TAB" \
          --config "$CONF" --log-file "$LOG" --log-level INFO > "$listing"; then
       log "[$remote] ERROR: listing failed; album-only photos not copied"
       rm -f "$listing"
       return 1
     fi
 
-    # Album membership list, and the members whose file name is not in "All Photos".
-    awk -v albums="$dest/albums.txt" -v only="$album_only" '
-      index($0, "All Photos/") == 1 { have[substr($0, 12)] = 1; next }
-      { entries[++n] = $0 }
+    # A photo is identified by file name + size. For each album entry, "stored" is where its file lives
+    # in originals/: the All Photos copy if there is one, else the first album path holding that photo.
+    # albums.csv records that; album_only lists the one path to download per photo that is only in albums.
+    if ! LC_ALL=C sort -t "$TAB" -k2 "$listing" | awk -F "$TAB" -v albums="$dest/albums.csv.new" -v only="$album_only" '
+      function csv(s) {
+        if (s ~ /[",\n]/) { gsub(/"/, "\"\"", s); s = "\"" s "\"" }
+        return s
+      }
+      {
+        path = $2
+        if (index(path, "All Photos/") == 1) { have[substr(path, 12) SUBSEP $1] = 1; next }
+        if (index(path, "/") > 0) { n++; size[n] = $1; entry[n] = path }
+      }
       END {
+        print "path,size,stored" > albums
         for (i = 1; i <= n; i++) {
-          print entries[i] > albums
-          name = entries[i]; sub(/.*\//, "", name)
-          if (!(name in have) && index(entries[i], "/") > 0) print entries[i] > only
+          name = entry[i]; sub(/.*\//, "", name)
+          key = name SUBSEP size[i]
+          if (key in have) stored = name
+          else {
+            if (!(key in first)) { first[key] = entry[i]; print entry[i] > only }
+            stored = first[key]
+          }
+          print csv(entry[i]) "," size[i] "," csv(stored) > albums
         }
         close(albums); close(only)
-      }' "$listing"
-    [ -e "$dest/albums.txt" ] || : > "$dest/albums.txt"
+      }'; then
+      log "[$remote] ERROR: could not build the album list"
+      rm -f "$listing" "$dest/albums.csv.new" "$album_only"
+      return 1
+    fi
     [ -e "$album_only" ] || : > "$album_only"
+    mv "$dest/albums.csv.new" "$dest/albums.csv"
 
-    log "[$remote] copying $(wc -l < "$album_only") album-only photos"
+    log "[$remote] copying $(wc -l < "$album_only") album-only photos (one copy each)"
     $RCLONE copy "${remote}:/PrimarySync" "$dest/originals" \
       --files-from-raw "$album_only" \
       --config "$CONF" "${RCLONE_OPTS[@]}" \

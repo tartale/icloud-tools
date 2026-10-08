@@ -29,10 +29,41 @@ main() {
     mkdir -p "${2%/*}" && ln "$1" "$2" || return 2
   }
 
+  # Like link_one, but when a different photo already has that name, links it as <name>-<size>.<ext>
+  link_unique() {
+    local alt
+    [ -e "$2" ] || { link_one "$1" "$2"; return; }
+    [ "$1" -ef "$2" ] && return 1
+    if [[ ${2##*/} == *.* ]]; then alt="${2%.*}-$(stat -c %s "$1").${2##*.}"; else alt="$2-$(stat -c %s "$1")"; fi
+    if [ -e "$alt" ] && ! [ "$1" -ef "$alt" ]; then return 2; fi
+    link_one "$1" "$alt"
+  }
+
+  # Reads albums.csv (path,size,stored) and prints "path<TAB>stored" for each entry
+  albums_tsv() {
+    awk '
+      function parse(line, f,   n, i, c, q, cur) {
+        n = 1; cur = ""; q = 0
+        for (i = 1; i <= length(line); i++) {
+          c = substr(line, i, 1)
+          if (q) {
+            if (c != "\"") cur = cur c
+            else if (substr(line, i + 1, 1) == "\"") { cur = cur c; i++ }
+            else q = 0
+          } else if (c == "\"") q = 1
+          else if (c == ",") { f[n++] = cur; cur = "" }
+          else cur = cur c
+        }
+        f[n] = cur
+        return n
+      }
+      NR > 1 { parse($0, f); print f[1] "\t" f[3] }' "$1"
+  }
+
   link_account() {
     local base="$1" src="$1/originals" t0=$SECONDS
     local d_new=0 d_have=0 d_fail=0 a_new=0 a_have=0 a_fail=0 a_miss=0
-    local ym f line album name file total i
+    local ym f line stored album name total i
 
     [ -d "$src" ] || { log "[$base] ERROR: $src not found"; return 1; }
     log "[$base] starting (dry=$DRY)"
@@ -43,7 +74,7 @@ main() {
     log "[$base] by-date: $total files to check"
     i=0
     while IFS= read -r -d '' ym && IFS= read -r -d '' f; do
-      link_one "$f" "$base/by-date/$ym/${f##*/}"
+      link_unique "$f" "$base/by-date/$ym/${f##*/}"
       case $? in
         0) ((d_new++));;
         1) ((d_have++));;
@@ -56,25 +87,19 @@ main() {
     done < <(find "$src" -type f -printf '%TY/%Tm\0%p\0')
     log "[$base] by-date done: new=$d_new existing=$d_have failed=$d_fail"
 
-    # --- albums/<Album>/ (from the album list the backup script writes) ---
-    # An entry is stored at originals/<entry> when it exists only in an album, otherwise at originals/<name>.
-    if [ -s "$base/albums.txt" ]; then
-      total=$(grep -c '/' "$base/albums.txt")
+    # --- albums/<Album>/ (from albums.csv, which the backup script writes) ---
+    if [ -s "$base/albums.csv" ]; then
+      total=$(albums_tsv "$base/albums.csv" | wc -l)
       log "[$base] albums: $total entries to check"
       i=0
-      while IFS= read -r line; do
-        [[ $line == */* ]] || continue          # skip entries not inside an album folder
+      while IFS=$'\t' read -r line stored; do
         album="${line%/*}"; name="${line##*/}"
         ((i++))
-        if [ -f "$src/$line" ]; then file="$src/$line"
-        elif [ -f "$src/$name" ]; then file="$src/$name"
-        else file=""
-        fi
-        if [ -z "$file" ]; then
+        if [ ! -f "$src/$stored" ]; then
           ((a_miss++))
-          if ((a_miss <= 20)); then log "[$base] not in originals: $line"; fi
+          if ((a_miss <= 20)); then log "[$base] not in originals: $line -> $stored"; fi
         else
-          link_one "$file" "$base/albums/$album/$name"
+          link_one "$src/$stored" "$base/albums/$album/$name"
           case $? in
             0) ((a_new++));;
             1) ((a_have++));;
@@ -84,10 +109,10 @@ main() {
         if ((i % PROGRESS_EVERY == 0)); then
           log "[$base] albums: $i/$total (new=$a_new existing=$a_have failed=$a_fail not-in-originals=$a_miss) $((SECONDS - t0))s elapsed"
         fi
-      done < "$base/albums.txt"
+      done < <(albums_tsv "$base/albums.csv")
       log "[$base] albums done: new=$a_new existing=$a_have failed=$a_fail not-in-originals=$a_miss"
     else
-      log "[$base] albums.txt missing or empty; skipped albums"
+      log "[$base] albums.csv missing or empty; skipped albums"
     fi
 
     log "[$base] finished in $((SECONDS - t0))s"

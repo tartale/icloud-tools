@@ -6,7 +6,7 @@ Scripts that wrap [rclone](https://rclone.org) to back up iCloud Photos to a loc
 
 | Script | What it does |
 | --- | --- |
-| `backup.sh` | For each account, `rclone copy`s `PrimarySync/All Photos` into `$ICLOUD_ROOT/<name>/originals/`, then also copies photos that exist only in albums (not in All Photos) to `originals/<Album>/`. Writes `albums.txt` (album membership). Safe to run from cron; skips if a run is already active. |
+| `backup.sh` | For each account, `rclone copy`s `PrimarySync/All Photos` into `$ICLOUD_ROOT/<name>/originals/`, then copies photos that exist only in albums to `originals/<Album>/`, once per photo. Writes `albums.csv`. Safe to run from cron; skips if a run is already active. |
 | `organize.sh` | Builds `by-date/YYYY/MM/` (by file mtime) and `albums/<Album>/` hardlink trees beside `originals/`. Rerunnable; never modifies `originals/`. |
 | `lint.sh` | Runs `shellcheck` over every script. |
 | `config.sh` | Shared settings, sourced by the two scripts above. |
@@ -22,8 +22,10 @@ $ICLOUD_ROOT/<name>/
   originals/        # one copy of everything
   by-date/YYYY/MM/  # hardlinks
   albums/<Album>/   # hardlinks
-  albums.txt
+  albums.csv        # path,size,stored: each album entry and the originals/ file it links to
 ```
+
+A photo is the same photo when its file name and size match. A photo in several albums is downloaded once; a different photo that merely shares a name (same name, different size) is kept separately. If two different photos share a name in the same month, `by-date/` links the second as `<name>-<size>.<ext>`.
 
 ## Configuration
 
