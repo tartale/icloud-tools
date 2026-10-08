@@ -68,9 +68,9 @@ main() {
     [ -d "$src" ] || { log "[$base] ERROR: $src not found"; return 1; }
     log "[$base] starting (dry=$DRY)"
 
-    # --- by-date/YYYY/MM (uses file modification time) ---
+    # --- by-date/YYYY/MM (uses file modification time; Synology @eaDir index folders are skipped) ---
     log "[$base] by-date: counting files..."
-    total=$(find "$src" -type f | wc -l)
+    total=$(find "$src" -name @eaDir -prune -o -type f -print | wc -l)
     log "[$base] by-date: $total files to check"
     i=0
     while IFS= read -r -d '' ym && IFS= read -r -d '' f; do
@@ -84,7 +84,7 @@ main() {
       if ((i % PROGRESS_EVERY == 0)); then
         log "[$base] by-date: $i/$total (new=$d_new existing=$d_have failed=$d_fail) $((SECONDS - t0))s elapsed"
       fi
-    done < <(find "$src" -type f -printf '%TY/%Tm\0%p\0')
+    done < <(find "$src" -name @eaDir -prune -o -type f -printf '%TY/%Tm\0%p\0')
     log "[$base] by-date done: new=$d_new existing=$d_have failed=$d_fail"
 
     # --- albums/<Album>/ (from albums.csv, which the backup script writes) ---
