@@ -1,6 +1,6 @@
 #!/bin/bash
 # Copy every photo and video from each iCloud account into <account>/originals/, plus the album listing.
-# "All Photos" lands flat in originals/; photos that exist only in albums land in originals/<Album>/,
+# "All Photos" lands in originals/ as it is on iCloud (flat today); photos that exist only in albums land in originals/<Album>/,
 # once each (a photo is the same when file name, size and modification time match). albums.csv maps each album entry to its stored file.
 # One lock for all accounts: they run one after the other, which is also gentler on Apple's rate limits
 # The whole script lives in main so bash has parsed all of it before running any of it;
@@ -74,7 +74,11 @@ main() {
       }
       {
         path = $3
-        if (index(path, "All Photos/") == 1) { have[substr(path, 12) SUBSEP $2 SUBSEP $1] = 1; next }
+        if (index(path, "All Photos/") == 1) {
+          rel = substr(path, 12); name = rel; sub(/.*\//, "", name)
+          have[name SUBSEP $2 SUBSEP $1] = rel   # where rclone copy puts it in originals/
+          next
+        }
         if (index(path, "/") > 0) { n++; mtime[n] = $1; size[n] = $2; entry[n] = path }
       }
       END {
@@ -82,7 +86,7 @@ main() {
         for (i = 1; i <= n; i++) {
           name = entry[i]; sub(/.*\//, "", name)
           key = name SUBSEP size[i] SUBSEP mtime[i]
-          if (key in have) stored = name
+          if (key in have) stored = have[key]
           else {
             if (!(key in first)) { first[key] = entry[i]; print entry[i] > only }
             stored = first[key]
