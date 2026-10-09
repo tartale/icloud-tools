@@ -6,14 +6,18 @@
 # The whole script lives in main so bash has parsed all of it before running any of it;
 # editing the file mid-run then cannot corrupt that run.
 main() {
-  # shellcheck source=config.sh
-  source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-  exec 9>"$ICLOUD_LOCK_FILE"
+  # Configuration comes from the environment only (see README)
+  missing=()
+  for v in ICLOUD_ROOT ICLOUD_ACCOUNTS; do [ -n "${!v:-}" ] || missing+=("$v"); done
+  if ((${#missing[@]})); then echo "Missing required environment variables: ${missing[*]}" >&2; exit 2; fi
+  DRY_RUN=${DRY_RUN:-false}
+  exec 9>"${ICLOUD_LOCK_FILE:-/tmp/rclone-icloudphotos.lock}"
   flock -n 9 || { echo "Previous run still active, exiting"; exit 0; }
 
   TAB=$'\t'
-  RCLONE=$ICLOUD_RCLONE
-  CONF=$ICLOUD_RCLONE_CONF
+  RCLONE=${ICLOUD_RCLONE:-rclone}
+  CONF_OPTS=()
+  if [ -n "${ICLOUD_RCLONE_CONF:-}" ]; then CONF_OPTS=(--config "$ICLOUD_RCLONE_CONF"); fi
   LOG=$ICLOUD_ROOT/backup.log
 
   # Writes to the log file, and to the terminal too when run interactively
@@ -37,7 +41,7 @@ main() {
     log "[$remote] copying All Photos (dry-run=$DRY_RUN)"
 
     $RCLONE copy "${remote}:/PrimarySync/All Photos" "$dest/originals" \
-      --config "$CONF" "${RCLONE_OPTS[@]}" \
+      "${CONF_OPTS[@]}" "${RCLONE_OPTS[@]}" \
       --transfers 4 --checkers 8 \
       --retries 5 --low-level-retries 20 \
       --log-file "$LOG" --log-level INFO || rc=1
@@ -45,7 +49,7 @@ main() {
     # Full listing (modification time, size, path; tab-separated), taken after the copy above and sorted by path so that
     # the same photo always resolves to the same stored copy. Entries outside "All Photos" are album members.
     if ! $RCLONE lsf "${remote}:/PrimarySync" -R --files-only --format tsp --separator "$TAB" \
-         --config "$CONF" --log-file "$LOG" --log-level INFO > "$listing"; then
+         "${CONF_OPTS[@]}" --log-file "$LOG" --log-level INFO > "$listing"; then
       log "[$remote] ERROR: listing failed; album-only photos not copied"
       rm -f "$listing"
       return 1
@@ -88,7 +92,7 @@ main() {
     log "[$remote] copying $(wc -l < "$album_only") album-only photos (one copy each)"
     $RCLONE copy "${remote}:/PrimarySync" "$dest/originals" \
       --files-from-raw "$album_only" \
-      --config "$CONF" "${RCLONE_OPTS[@]}" \
+      "${CONF_OPTS[@]}" "${RCLONE_OPTS[@]}" \
       --transfers 4 --checkers 8 \
       --retries 5 --low-level-retries 20 \
       --log-file "$LOG" --log-level INFO || rc=1

@@ -4,9 +4,12 @@
 # The whole script lives in main so bash has parsed all of it before running any of it;
 # editing the file mid-run then cannot corrupt that run.
 main() {
-  # shellcheck source=config.sh
-  source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-  exec 9>"$ICLOUD_LOCK_FILE"
+  # Configuration comes from the environment only (see README)
+  missing=()
+  for v in ICLOUD_ROOT ICLOUD_ACCOUNTS; do [ -n "${!v:-}" ] || missing+=("$v"); done
+  if ((${#missing[@]})); then echo "Missing required environment variables: ${missing[*]}" >&2; exit 2; fi
+  DRY_RUN=${DRY_RUN:-false}
+  exec 9>"${ICLOUD_LOCK_FILE:-/tmp/rclone-icloudphotos.lock}"
   flock -n 9 || { echo "Backup still running, exiting"; exit 0; }
 
   LOG=$ICLOUD_ROOT/organize.log
