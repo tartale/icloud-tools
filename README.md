@@ -39,7 +39,7 @@ The scripts are configured only through environment variables; there is no confi
 | `ICLOUD_RCLONE_CONF` | no | rclone's own default config location | Path to the rclone config that defines the iCloud remotes (passed as `--config`) |
 | `ICLOUD_RCLONE` | no | `rclone` (from `PATH`) | rclone binary |
 | `ICLOUD_LOCK_FILE` | no | `/tmp/rclone-icloudphotos.lock` | Lock shared by both scripts |
-| `DRY_RUN` | no | `false` | `true`/`1`: `backup.sh` passes `--dry-run` to rclone (it still rewrites `albums.csv`); `organize.sh` counts only and creates nothing |
+| `DRY_RUN` | no | `false` | `true`/`1`: `backup.sh` passes `--dry-run` to rclone; it changes nothing under `$ICLOUD_ROOT/<name>/`; `organize.sh` counts only and creates nothing |
 | `PROGRESS_EVERY` | no | `1000` | `organize.sh` progress-log interval, in files |
 
 Example:
