@@ -1,17 +1,18 @@
 # icloud-tools
 
-Scripts that wrap [rclone](https://rclone.org) to back up iCloud Photos to a local disk (built for a Synology NAS).
+Scripts that wrap [rclone](https://rclone.org) to back up iCloud Photos to a local disk (developed on a Synology NAS).
 
 ## Scripts
 
+The scripts live in `photos/`.
+
 | Script | What it does |
 | --- | --- |
-| `backup.sh` | For each account, `rclone copy`s `PrimarySync/All Photos` into `$ICLOUD_ROOT/<name>/originals/`, then copies photos that exist only in albums to `originals/<Album>/`, once per photo. Writes `albums.csv`. Safe to run from cron; skips if a run is already active. |
-| `organize.sh` | Builds `by-date/YYYY/MM/` (by file mtime) and `albums/<Album>/` hardlink trees beside `originals/`. Rerunnable; never modifies `originals/`. |
-| `lint.sh` | Runs `shellcheck` over every script. |
-| `config.sh` | Shared settings, sourced by the two scripts above. |
+| `photos/backup.sh` | For each account, `rclone copy`s `PrimarySync/All Photos` into `$ICLOUD_ROOT/<name>/originals/`, then copies photos that exist only in albums to `originals/<Album>/`, once per photo. Writes `albums.csv`. Safe to run from cron; skips if a run is already active. |
+| `photos/organize.sh` | Builds `by-date/YYYY/MM/` (by file mtime) and `albums/<Album>/` hardlink trees beside `originals/`. Rerunnable; never modifies `originals/`. |
+| `photos/lint.sh` | Runs `shellcheck` over every script in the repo. |
 
-`backup.sh` and `organize.sh` share one lock, so they never run at the same time.
+`photos/backup.sh` and `photos/organize.sh` share one lock, so they never run at the same time.
 
 ## Layout
 
@@ -29,16 +30,25 @@ A photo is the same photo when its file name, size and modification time all mat
 
 ## Configuration
 
-Set in the environment; defaults are in `config.sh`.
+The scripts are configured only through environment variables; there is no config file. A script exits with an error naming any required variable that is not set.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `ICLOUD_ROOT` | `/volume1/icloud/photos` | Destination root and log directory |
-| `ICLOUD_ACCOUNTS` | `tom=tom.photos.icloud marissa=marissa.photos.icloud` | Space-separated `<name>=<rclone remote>` pairs |
-| `ICLOUD_RCLONE` | `/usr/bin/rclone` | rclone binary |
-| `ICLOUD_RCLONE_CONF` | `/volume1/homes/admin/.config/rclone/rclone.conf` | rclone config with the iCloud remotes |
-| `ICLOUD_LOCK_FILE` | `/tmp/rclone-icloudphotos.lock` | Shared lock |
-| `DRY_RUN` | `false` | `true`/`1`: `backup.sh` passes `--dry-run` to rclone; `organize.sh` counts only and creates nothing |
-| `PROGRESS_EVERY` | `1000` | `organize.sh` progress-log interval |
+| Variable | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `ICLOUD_ROOT` | yes | | Destination root. Each account gets `$ICLOUD_ROOT/<name>/`; logs are written here too |
+| `ICLOUD_ACCOUNTS` | yes | | Space-separated `<name>=<rclone remote>` pairs, e.g. `alice=alice.icloud bob=bob.icloud` |
+| `ICLOUD_RCLONE_CONF` | no | rclone's own default config location | Path to the rclone config that defines the iCloud remotes (passed as `--config`) |
+| `ICLOUD_RCLONE` | no | `rclone` (from `PATH`) | rclone binary |
+| `ICLOUD_LOCK_FILE` | no | `/tmp/rclone-icloudphotos.lock` | Lock shared by both scripts |
+| `DRY_RUN` | no | `false` | `true`/`1`: `backup.sh` passes `--dry-run` to rclone (it still rewrites `albums.csv`); `organize.sh` counts only and creates nothing |
+| `PROGRESS_EVERY` | no | `1000` | `organize.sh` progress-log interval, in files |
+
+Example:
+
+```
+export ICLOUD_ROOT=/data/icloud
+export ICLOUD_ACCOUNTS="alice=alice.icloud bob=bob.icloud"
+export ICLOUD_RCLONE_CONF=/etc/rclone/rclone.conf
+photos/backup.sh && photos/organize.sh
+```
 
 Logs: `$ICLOUD_ROOT/backup.log`, `$ICLOUD_ROOT/organize.log`. Run from a terminal, both scripts also print their status lines there, and `backup.sh` shows rclone's live transfer progress; from cron they only write the log.
