@@ -30,14 +30,23 @@ main() {
 
   # Interactive runs show rclone's live transfer progress; the log file gets INFO either way
   RCLONE_OPTS=()
-  case $DRY_RUN in true|1) RCLONE_OPTS+=(--dry-run);; esac
+  DRY=0
+  case $DRY_RUN in true|1) DRY=1; RCLONE_OPTS+=(--dry-run);; esac
   if [ -t 1 ]; then RCLONE_OPTS+=(--progress); fi
+
+  # Removes the working files of the account being backed up (and the temp dir of a dry run)
+  cleanup_work() {
+    rm -f "$listing" "$album_only" "$albums_new"
+    if [ "$DRY" = 1 ]; then rmdir "$work"; fi
+  }
 
   backup_account() {
     local remote="$1" dest="$2"
-    local rc=0 listing="$2/listing.tmp" album_only="$2/album-only.tmp"
+    local rc=0 work="$2" listing album_only albums_new
 
-    mkdir -p "$dest/originals"
+    # A dry run keeps its working files outside the account dir and changes nothing in it
+    if [ "$DRY" = 1 ]; then work=$(mktemp -d) || return 1; else mkdir -p "$dest/originals"; fi
+    listing="$work/listing.tmp" album_only="$work/album-only.tmp" albums_new="$work/albums.csv.new"
     log "[$remote] copying All Photos (dry-run=$DRY_RUN)"
 
     $RCLONE copy "${remote}:/PrimarySync/All Photos" "$dest/originals" \
@@ -51,14 +60,14 @@ main() {
     if ! $RCLONE lsf "${remote}:/PrimarySync" -R --files-only --format tsp --separator "$TAB" \
          "${CONF_OPTS[@]}" --log-file "$LOG" --log-level INFO > "$listing"; then
       log "[$remote] ERROR: listing failed; album-only photos not copied"
-      rm -f "$listing"
+      cleanup_work
       return 1
     fi
 
     # A photo is identified by file name + size + modification time. For each album entry, "stored" is where its file lives
     # in originals/: the All Photos copy if there is one, else the first album path holding that photo.
     # albums.csv records that; album_only lists the one path to download per photo that is only in albums.
-    if ! LC_ALL=C sort -t "$TAB" -k3 "$listing" | awk -F "$TAB" -v albums="$dest/albums.csv.new" -v only="$album_only" '
+    if ! LC_ALL=C sort -t "$TAB" -k3 "$listing" | awk -F "$TAB" -v albums="$albums_new" -v only="$album_only" '
       function csv(s) {
         if (s ~ /[",\n]/) { gsub(/"/, "\"\"", s); s = "\"" s "\"" }
         return s
@@ -83,11 +92,15 @@ main() {
         close(albums); close(only)
       }'; then
       log "[$remote] ERROR: could not build the album list"
-      rm -f "$listing" "$dest/albums.csv.new" "$album_only"
+      cleanup_work
       return 1
     fi
     [ -e "$album_only" ] || : > "$album_only"
-    mv "$dest/albums.csv.new" "$dest/albums.csv"
+    if [ "$DRY" = 1 ]; then
+      log "[$remote] dry-run: albums.csv left as is ($(($(wc -l < "$albums_new") - 1)) entries in the new list)"
+    else
+      mv "$albums_new" "$dest/albums.csv"
+    fi
 
     log "[$remote] copying $(wc -l < "$album_only") album-only photos (one copy each)"
     $RCLONE copy "${remote}:/PrimarySync" "$dest/originals" \
@@ -97,7 +110,7 @@ main() {
       --retries 5 --low-level-retries 20 \
       --log-file "$LOG" --log-level INFO || rc=1
 
-    rm -f "$listing" "$album_only"
+    cleanup_work
     log "[$remote] finished (exit $rc)"
     return $rc
   }
